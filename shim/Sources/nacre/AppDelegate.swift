@@ -64,8 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActionReceiver {
         server = srv
 
         // 3. Launch Chromium
-        guard let chromiumPath = launcher.resolveChromiumPath() else {
-            NSLog("[nacre] Chromium binary not found at expected relative path")
+        guard let browserPath = launcher.resolveBrowserPath() else {
+            NSLog("[nacre] browser binary not found in Frameworks/")
             showChromiumNotFoundAlert()
             return
         }
@@ -73,9 +73,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActionReceiver {
             self?.handleChromiumExit(code: code)
         }
         do {
-            try launcher.launch(chromiumPath: chromiumPath,
+            try launcher.launch(browserPath: browserPath,
                                 argv: CommandLine.arguments)
-            NSLog("[nacre] launched Chromium at %@", chromiumPath)
+            NSLog("[nacre] launched browser at %@", browserPath)
         } catch {
             NSLog("[nacre] failed to launch Chromium: %@", error.localizedDescription)
         }

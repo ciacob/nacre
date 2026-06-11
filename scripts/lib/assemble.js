@@ -88,9 +88,12 @@ const realOps = {
  * @returns {object}          Map of named paths.
  */
 function buildPaths(config, repoRoot, path = nodePath) {
-  const safeName      = config.app.name.replace(/[/\\:*?"<>|]/g, '_');
-  const appBundle     = path.join(config.output.dir, `${safeName}.app`);
-  const contents      = path.join(appBundle, 'Contents');
+  const safeName          = config.app.name.replace(/[/\\:*?"<>|]/g, '_');
+  const appBundle         = path.join(config.output.dir, `${safeName}.app`);
+  const contents          = path.join(appBundle, 'Contents');
+  // Preserve the original browser bundle name (e.g. "Google Chrome for Testing.app")
+  // so the internal CFBundleExecutable path remains valid after copying.
+  const browserBundleName = path.basename(config.browser.executablePath);
 
   return {
     // Source paths
@@ -107,7 +110,7 @@ function buildPaths(config, repoRoot, path = nodePath) {
     resources:        path.join(contents, 'Resources'),
     shimBinaryDest:   path.join(contents, 'MacOS',      'nacre'),
     plistDest:        path.join(contents, 'Info.plist'),
-    chromiumDest:     path.join(contents, 'Frameworks', 'Chromium.app'),
+    chromiumDest:     path.join(contents, 'Frameworks', browserBundleName),
     iconDest:         path.join(contents, 'Resources',  'AppIcon.icns'),
   };
 }

@@ -56,10 +56,18 @@ test('buildPaths: shimBinaryDest is MacOS/nacre inside bundle', () => {
   assert.ok(paths.shimBinaryDest.endsWith('nacre'));
 });
 
-test('buildPaths: chromiumDest is Frameworks/Chromium.app', () => {
+test('buildPaths: chromiumDest preserves original browser bundle name', () => {
   const paths = buildPaths(validConfig(), REPO_ROOT);
+  // config has executablePath ending in "Chromium.app" — that name is preserved
   assert.ok(paths.chromiumDest.includes('Frameworks'));
   assert.ok(paths.chromiumDest.endsWith('Chromium.app'));
+});
+
+test('buildPaths: chromiumDest preserves bundle name with spaces', () => {
+  const cfg = validConfig();
+  cfg.browser.executablePath = '/path/to/Google Chrome for Testing.app';
+  const paths = buildPaths(cfg, REPO_ROOT);
+  assert.ok(paths.chromiumDest.endsWith('Google Chrome for Testing.app'));
 });
 
 test('buildPaths: iconDest is Resources/AppIcon.icns', () => {
