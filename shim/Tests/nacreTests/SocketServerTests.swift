@@ -74,11 +74,19 @@ final class MockSocketIO: SocketIO {
     }
 
     func read(fd: Int32, maxBytes: Int) throws -> Data {
+        // Block only when the queue is empty.  If chunks are already waiting,
+        // consume one semaphore token (posted alongside each feed() call) and
+        // return immediately.  Re-signal if more chunks remain so subsequent
+        // read() calls don't stall.
         dataAvailable.wait()
         inboundLock.lock()
         defer { inboundLock.unlock() }
         guard !inboundChunks.isEmpty else { return Data() }
-        return inboundChunks.removeFirst()
+        let chunk = inboundChunks.removeFirst()
+        if !inboundChunks.isEmpty {
+            dataAvailable.signal()
+        }
+        return chunk
     }
 
     func write(fd: Int32, data: Data) throws {
@@ -197,13 +205,16 @@ final class SocketServerTests: XCTestCase {
             exp.fulfill()
         }
 
-        // Two newline-delimited JSON frames in one Data chunk
-        let combined = """
-        {"type":"set_menu","menus":[{"label":"File","items":[]}]}
-        {"type":"patch_menu","patches":[{"id":"x","enabled":true}]}
-        """.data(using: .utf8)!
+        // Two newline-delimited JSON frames concatenated into one Data chunk.
+        // No leading whitespace — the Swift multi-line literal would indent them.
+        let frame1   = #"{"type":"set_menu","menus":[{"label":"File","items":[]}]}"# + "\n"
+        let frame2   = #"{"type":"patch_menu","patches":[{"id":"x","enabled":true}]}"# + "\n"
+        let combined = (frame1 + frame2).data(using: .utf8)!
 
         mock.feed(data: combined)
+        // After the read loop processes both frames it blocks waiting for more
+        // data.  Feed EOF so it exits cleanly and the test doesn't time out.
+        mock.feedEOF()
 
         wait(for: [exp], timeout: 2.0)
         XCTAssertEqual(messages.count, 2)
@@ -230,9 +241,7 @@ final class SocketServerTests: XCTestCase {
         defer { server.stop() }
 
         // Give the server a clientFd by feeding then draining a message
-        mock.feedJSON("""
-        {"type":"set_menu","menus":[{"label":"X","items":[]}]}
-        """)
+        mock.feedJSON(#"{"type":"set_menu","menus":[{"label":"X","items":[]}]}"#)
         let msgExp = XCTestExpectation(description: "msg received before send test")
         server.onMessage = { _ in msgExp.fulfill() }
         wait(for: [msgExp], timeout: 2.0)

@@ -15,7 +15,7 @@ final class MockProcessHandle: ProcessHandle {
 
     private(set) var launchCalled = false
     private(set) var terminateCalled = false
-    private(set) var launchError: Error?
+    var launchError: Error?
 
     var isRunning: Bool = false
 
