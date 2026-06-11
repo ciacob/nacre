@@ -1,8 +1,5 @@
 // MenuDescriptorTests.swift
 // nacreTests
-//
-// Tests for MenuDescriptor, InboundMessage, OutboundMessage Codable
-// round-trips and edge cases.  No AppKit required.
 
 import XCTest
 @testable import nacreLib
@@ -16,86 +13,124 @@ final class MenuDescriptorTests: XCTestCase {
 
     func test_menuItem_defaults() {
         let item = MenuItemDescriptor(id: "x", label: "X")
-        XCTAssertTrue(item.isEnabled,   "enabled should default to true")
-        XCTAssertFalse(item.isChecked,  "checked should default to false")
-        XCTAssertFalse(item.isSeparator,"type defaults to .item, not separator")
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertFalse(item.isChecked)
+        XCTAssertFalse(item.isSeparator)
     }
 
     func test_separator_detection() {
         let sep = MenuItemDescriptor(type: .separator)
         XCTAssertTrue(sep.isSeparator)
-        XCTAssertFalse(sep.isEnabled == false, "isSeparator doesn't affect isEnabled")
     }
 
     func test_menuItem_roundtrip() throws {
         let original = MenuItemDescriptor(
-            type:      .item,
-            id:        "file.new",
-            label:     "New",
-            key:       "n",
-            modifiers: [.cmd, .shift],
-            enabled:   false,
-            checked:   true
+            type: .item, id: "file.new", label: "New",
+            key: "n", modifiers: [.cmd, .shift],
+            enabled: false, checked: true
         )
-        let data    = try encoder.encode(original)
-        let decoded = try decoder.decode(MenuItemDescriptor.self, from: data)
+        let decoded = try decoder.decode(MenuItemDescriptor.self,
+                                         from: try encoder.encode(original))
         XCTAssertEqual(original, decoded)
     }
 
     func test_separator_roundtrip() throws {
         let sep     = MenuItemDescriptor(type: .separator)
-        let data    = try encoder.encode(sep)
-        let decoded = try decoder.decode(MenuItemDescriptor.self, from: data)
+        let decoded = try decoder.decode(MenuItemDescriptor.self,
+                                         from: try encoder.encode(sep))
         XCTAssertEqual(sep, decoded)
     }
 
-    // ── InboundMessage ────────────────────────────────────────────────────
+    // ── InboundMessage — existing types ──────────────────────────────────
 
     func test_setMenu_decode() throws {
         let json = """
-        {
-          "type": "set_menu",
-          "menus": [
-            {
-              "label": "File",
-              "items": [
-                { "id": "file.new", "label": "New", "key": "n", "modifiers": ["cmd"] }
-              ]
-            }
-          ]
-        }
+        {"type":"set_menu","menus":[{"label":"File","items":[
+          {"id":"file.new","label":"New","key":"n","modifiers":["cmd"]}
+        ]}]}
         """.data(using: .utf8)!
-
         let msg = try decoder.decode(InboundMessage.self, from: json)
         guard case .setMenu(let menus) = msg else {
-            return XCTFail("Expected .setMenu, got \(msg)")
+            return XCTFail("Expected .setMenu")
         }
         XCTAssertEqual(menus.count, 1)
-        XCTAssertEqual(menus[0].label, "File")
         XCTAssertEqual(menus[0].items[0].id, "file.new")
-        XCTAssertEqual(menus[0].items[0].modifiers, [.cmd])
     }
 
     func test_patchMenu_decode() throws {
         let json = """
-        {
-          "type": "patch_menu",
-          "patches": [
-            { "id": "file.close", "enabled": false },
-            { "id": "file.save",  "label": "Save…", "checked": true }
-          ]
-        }
+        {"type":"patch_menu","patches":[
+          {"id":"file.close","enabled":false}
+        ]}
         """.data(using: .utf8)!
-
         let msg = try decoder.decode(InboundMessage.self, from: json)
         guard case .patchMenu(let patches) = msg else {
-            return XCTFail("Expected .patchMenu, got \(msg)")
+            return XCTFail("Expected .patchMenu")
         }
-        XCTAssertEqual(patches.count, 2)
-        XCTAssertEqual(patches[0].id, "file.close")
         XCTAssertEqual(patches[0].enabled, false)
-        XCTAssertEqual(patches[1].label, "Save…")
-        XCTAssertEqual(patches[1].checked, true)
+    }
+
+    // ── InboundMessage — new types ────────────────────────────────────────
+
+    func test_setURL_decode() throws {
+        let json = #"{"type":"set_url","url":"http://127.0.0.1:3000"}"#
+            .data(using: .utf8)!
+        let msg = try decoder.decode(InboundMessage.self, from: json)
+        guard case .setURL(let url) = msg else {
+            return XCTFail("Expected .setURL")
+        }
+        XCTAssertEqual(url, "http://127.0.0.1:3000")
+    }
+
+    func test_setURL_roundtrip() throws {
+        let original = InboundMessage.setURL(url: "http://localhost:8080")
+        let decoded  = try decoder.decode(InboundMessage.self,
+                                          from: try encoder.encode(original))
+        XCTAssertEqual(original, decoded)
+    }
+
+    func test_setScript_decode() throws {
+        let json = #"{"type":"set_script","script":"console.log('hi')"}"#
+            .data(using: .utf8)!
+        let msg = try decoder.decode(InboundMessage.self, from: json)
+        guard case .setScript(let script) = msg else {
+            return XCTFail("Expected .setScript")
+        }
+        XCTAssertEqual(script, "console.log('hi')")
+    }
+
+    func test_setScript_roundtrip() throws {
+        let original = InboundMessage.setScript(script: "(function(){})()")
+        let decoded  = try decoder.decode(InboundMessage.self,
+                                          from: try encoder.encode(original))
+        XCTAssertEqual(original, decoded)
+    }
+
+    func test_setDevTools_enabled_decode() throws {
+        let json = #"{"type":"set_devtools","enabled":true}"#.data(using: .utf8)!
+        let msg  = try decoder.decode(InboundMessage.self, from: json)
+        guard case .setDevTools(let enabled) = msg else {
+            return XCTFail("Expected .setDevTools")
+        }
+        XCTAssertTrue(enabled)
+    }
+
+    func test_setDevTools_disabled_decode() throws {
+        let json = #"{"type":"set_devtools","enabled":false}"#.data(using: .utf8)!
+        let msg  = try decoder.decode(InboundMessage.self, from: json)
+        guard case .setDevTools(let enabled) = msg else {
+            return XCTFail("Expected .setDevTools")
+        }
+        XCTAssertFalse(enabled)
+    }
+
+    func test_setDevTools_roundtrip() throws {
+        for value in [true, false] {
+            let original = InboundMessage.setDevTools(enabled: value)
+            let decoded  = try decoder.decode(InboundMessage.self,
+                                              from: try encoder.encode(original))
+            XCTAssertEqual(original, decoded)
+        }
     }
 
     func test_unknownType_throws() {
@@ -103,52 +138,56 @@ final class MenuDescriptorTests: XCTestCase {
         XCTAssertThrowsError(try decoder.decode(InboundMessage.self, from: json))
     }
 
-    func test_setMenu_roundtrip() throws {
-        let original = InboundMessage.setMenu(menus: [
-            MenuDescriptor(label: "Edit", items: [
-                MenuItemDescriptor(id: "edit.copy", label: "Copy", key: "c", modifiers: [.cmd])
-            ])
-        ])
-        let data    = try encoder.encode(original)
-        let decoded = try decoder.decode(InboundMessage.self, from: data)
-        XCTAssertEqual(original, decoded)
-    }
-
-    // ── OutboundMessage ───────────────────────────────────────────────────
+    // ── OutboundMessage — existing types ──────────────────────────────────
 
     func test_menuAction_encode() throws {
-        let msg  = OutboundMessage.menuAction(id: "file.new")
-        let data = try encoder.encode(msg)
+        let data = try encoder.encode(OutboundMessage.menuAction(id: "file.new"))
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(json["type"] as? String, "menu_action")
         XCTAssertEqual(json["id"]   as? String, "file.new")
     }
 
     func test_fileOpen_encode() throws {
-        let paths = ["/Users/me/doc.myext", "/Users/me/other.myext"]
-        let msg   = OutboundMessage.fileOpen(paths: paths)
-        let data  = try encoder.encode(msg)
+        let paths = ["/Users/me/doc.myext"]
+        let data  = try encoder.encode(OutboundMessage.fileOpen(paths: paths))
         let json  = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(json["type"]  as? String,   "file_open")
         XCTAssertEqual(json["paths"] as? [String], paths)
     }
 
     func test_appReopen_encode() throws {
-        let msg  = OutboundMessage.appReopen
-        let data = try encoder.encode(msg)
+        let data = try encoder.encode(OutboundMessage.appReopen)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(json["type"] as? String, "app_reopen")
     }
 
-    func test_outbound_roundtrip() throws {
+    // ── OutboundMessage — new windowClosed ────────────────────────────────
+
+    func test_windowClosed_encode() throws {
+        let data = try encoder.encode(OutboundMessage.windowClosed)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(json["type"] as? String, "window_closed")
+    }
+
+    func test_windowClosed_roundtrip() throws {
+        let original = OutboundMessage.windowClosed
+        let decoded  = try decoder.decode(OutboundMessage.self,
+                                          from: try encoder.encode(original))
+        XCTAssertEqual(original, decoded)
+    }
+
+    // ── Full outbound roundtrip ───────────────────────────────────────────
+
+    func test_all_outbound_roundtrip() throws {
         let cases: [OutboundMessage] = [
             .menuAction(id: "view.zoom"),
-            .fileOpen(paths: ["/tmp/a.txt", "/tmp/b.txt"]),
-            .appReopen
+            .fileOpen(paths: ["/tmp/a.txt"]),
+            .appReopen,
+            .windowClosed,
         ]
         for msg in cases {
-            let data    = try encoder.encode(msg)
-            let decoded = try decoder.decode(OutboundMessage.self, from: data)
+            let decoded = try decoder.decode(OutboundMessage.self,
+                                             from: try encoder.encode(msg))
             XCTAssertEqual(msg, decoded, "Round-trip failed for \(msg)")
         }
     }

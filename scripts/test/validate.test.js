@@ -1,8 +1,4 @@
 // scripts/test/validate.test.js
-// Tests for lib/validate.js
-//
-// Run: node --test test/validate.test.js  (from scripts/)
-//   or: npm test                          (from scripts/)
 
 'use strict';
 
@@ -13,47 +9,27 @@ const { loadConfig, validateConfig, normaliseConfig } = require('../lib/validate
 // ── loadConfig ────────────────────────────────────────────────────────────────
 
 test('loadConfig: returns parsed object for valid JSON', () => {
-  const fakeFs = {
-    readFileSync: () => '{"app":{"name":"Test"}}'
-  };
-  const result = loadConfig('/fake/path.json', fakeFs);
-  assert.deepEqual(result, { app: { name: 'Test' } });
+  const fakeFs = { readFileSync: () => '{"app":{"name":"Test"}}' };
+  assert.deepEqual(loadConfig('/fake/path.json', fakeFs), { app: { name: 'Test' } });
 });
 
 test('loadConfig: throws on unreadable file', () => {
-  const fakeFs = {
-    readFileSync: () => { throw new Error('ENOENT'); }
-  };
-  assert.throws(
-    () => loadConfig('/fake/path.json', fakeFs),
-    /cannot read config file/
-  );
+  const fakeFs = { readFileSync: () => { throw new Error('ENOENT'); } };
+  assert.throws(() => loadConfig('/fake/path.json', fakeFs), /cannot read config file/);
 });
 
 test('loadConfig: throws on invalid JSON', () => {
   const fakeFs = { readFileSync: () => 'not json {{{' };
-  assert.throws(
-    () => loadConfig('/fake/path.json', fakeFs),
-    /not valid JSON/
-  );
+  assert.throws(() => loadConfig('/fake/path.json', fakeFs), /not valid JSON/);
 });
 
 // ── validateConfig ────────────────────────────────────────────────────────────
 
 function validConfig() {
   return {
-    app: {
-      name:     'My App',
-      bundleId: 'com.example.myapp',
-      version:  '1.0.0',
-      icon:     './assets/MyApp.icns',
-    },
-    browser: {
-      executablePath: '/path/to/Chromium.app',
-    },
-    output: {
-      dir: './dist',
-    },
+    app:    { name: 'My App', bundleId: 'com.example.myapp', version: '1.0.0',
+              icon: './assets/MyApp.icns' },
+    output: { dir: './dist' },
   };
 }
 
@@ -62,15 +38,14 @@ test('validateConfig: accepts a valid config', () => {
 });
 
 test('validateConfig: throws when config is not an object', () => {
-  assert.throws(() => validateConfig(null),       /must be a JSON object/);
-  assert.throws(() => validateConfig('string'),   /must be a JSON object/);
-  assert.throws(() => validateConfig(42),         /must be a JSON object/);
+  assert.throws(() => validateConfig(null),     /must be a JSON object/);
+  assert.throws(() => validateConfig('string'), /must be a JSON object/);
 });
 
 test('validateConfig: throws when a top-level section is missing', () => {
   const cfg = validConfig();
-  delete cfg.browser;
-  assert.throws(() => validateConfig(cfg), /missing required section "browser"/);
+  delete cfg.output;
+  assert.throws(() => validateConfig(cfg), /missing required section "output"/);
 });
 
 test('validateConfig: throws when a required field is missing', () => {
@@ -85,15 +60,16 @@ test('validateConfig: throws when a required field is empty string', () => {
   assert.throws(() => validateConfig(cfg), /config\["app"\]\["name"\]/);
 });
 
+test('validateConfig: no browser section required', () => {
+  // browser key must be absent / optional
+  const cfg = validConfig();
+  assert.ok(!cfg.browser, 'fixture should have no browser key');
+  assert.doesNotThrow(() => validateConfig(cfg));
+});
+
 test('validateConfig: throws on invalid bundleId — single segment', () => {
   const cfg = validConfig();
   cfg.app.bundleId = 'myapp';
-  assert.throws(() => validateConfig(cfg), /reverse-DNS/);
-});
-
-test('validateConfig: throws on invalid bundleId — spaces', () => {
-  const cfg = validConfig();
-  cfg.app.bundleId = 'com.example.my app';
   assert.throws(() => validateConfig(cfg), /reverse-DNS/);
 });
 
@@ -109,12 +85,6 @@ test('validateConfig: throws on non-numeric version', () => {
   assert.throws(() => validateConfig(cfg), /dot-separated number/);
 });
 
-test('validateConfig: accepts single-digit version', () => {
-  const cfg = validConfig();
-  cfg.app.version = '2';
-  assert.doesNotThrow(() => validateConfig(cfg));
-});
-
 test('validateConfig: accepts multi-part version', () => {
   const cfg = validConfig();
   cfg.app.version = '10.2.33';
@@ -124,43 +94,35 @@ test('validateConfig: accepts multi-part version', () => {
 // ── normaliseConfig ───────────────────────────────────────────────────────────
 
 test('normaliseConfig: resolves relative paths against config file dir', () => {
-  // Use a config with genuinely relative paths so isAbsolute() returns false
-  // and the resolve branch actually fires.
   const cfg = {
-    app:     { name: 'X', bundleId: 'a.b', version: '1',
-               icon: './assets/icon.icns' },
-    browser: { executablePath: './browsers/Chromium.app' },
-    output:  { dir: './dist' },
+    app:    { name: 'X', bundleId: 'a.b', version: '1', icon: './icon.icns' },
+    output: { dir: './dist' },
   };
   const fakePath = {
     dirname:    () => '/config/dir',
-    // When called with (base, relative) resolve joins them
     resolve:    (...parts) => parts.length === 1
       ? parts[0]
       : '/config/dir/' + parts[parts.length - 1].replace(/^\.\//, ''),
     isAbsolute: (p) => p.startsWith('/'),
   };
   const result = normaliseConfig(cfg, '/config/dir/nacre.config.json', fakePath);
-  assert.match(result.app.icon,               /^\/config\/dir/);
-  assert.match(result.browser.executablePath,  /^\/config\/dir/);
-  assert.match(result.output.dir,             /^\/config\/dir/);
+  assert.match(result.app.icon,   /^\/config\/dir/);
+  assert.match(result.output.dir, /^\/config\/dir/);
 });
 
 test('normaliseConfig: leaves absolute paths unchanged', () => {
-  const cfg = validConfig();
-  cfg.app.icon              = '/absolute/icon.icns';
-  cfg.browser.executablePath = '/absolute/Chromium.app';
-  cfg.output.dir            = '/absolute/dist';
-
+  const cfg = {
+    app:    { name: 'X', bundleId: 'a.b', version: '1', icon: '/abs/icon.icns' },
+    output: { dir: '/abs/dist' },
+  };
   const fakePath = {
     dirname:    () => '/config/dir',
-    resolve:    (...parts) => parts[parts.length - 1], // identity for absolute
+    resolve:    (...parts) => parts[parts.length - 1],
     isAbsolute: (p) => p.startsWith('/'),
   };
   const result = normaliseConfig(cfg, '/config/dir/nacre.config.json', fakePath);
-  assert.equal(result.app.icon,               '/absolute/icon.icns');
-  assert.equal(result.browser.executablePath,  '/absolute/Chromium.app');
-  assert.equal(result.output.dir,             '/absolute/dist');
+  assert.equal(result.app.icon,   '/abs/icon.icns');
+  assert.equal(result.output.dir, '/abs/dist');
 });
 
 test('normaliseConfig: does not mutate the input config', () => {

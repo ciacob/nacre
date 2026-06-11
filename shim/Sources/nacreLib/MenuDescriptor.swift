@@ -1,30 +1,43 @@
 // MenuDescriptor.swift
 // nacreLib
 //
-// Plain-data model for the JSON menu protocol.
+// Plain-data model for the JSON menu/control protocol.
 // No Cocoa imports — these types are safe to use in tests on Linux too.
 //
-// Wire format example (inbound from Node.js):
+// ── Inbound wire format examples (Node.js → nacre) ───────────────────────────
 //
-//   {
-//     "type": "set_menu",
-//     "menus": [
-//       {
-//         "label": "File",
-//         "items": [
-//           { "id": "file.new",  "label": "New",  "key": "n", "modifiers": ["cmd"] },
-//           { "id": "file.open", "label": "Open…","key": "o", "modifiers": ["cmd"] },
-//           { "type": "separator" },
-//           { "id": "file.close","label": "Close","key": "w", "modifiers": ["cmd"],
-//             "enabled": false }
-//         ]
-//       }
-//     ]
-//   }
+//  Set the menu bar:
+//  { "type": "set_menu", "menus": [{ "label": "File", "items": [...] }] }
+//
+//  Patch specific items by id:
+//  { "type": "patch_menu", "patches": [{ "id": "file.save", "enabled": true }] }
+//
+//  Load a URL in the web view:
+//  { "type": "set_url", "url": "http://127.0.0.1:3000" }
+//
+//  Inject a JS guard script (runs before page code on every navigation):
+//  { "type": "set_script", "script": "(function(){ ... })()" }
+//
+//  Toggle developer tools:
+//  { "type": "set_devtools", "enabled": true }
+//
+// ── Outbound wire format examples (nacre → Node.js) ──────────────────────────
+//
+//  User activated a menu item:
+//  { "type": "menu_action", "id": "file.new" }
+//
+//  macOS delivered a file-open request:
+//  { "type": "file_open", "paths": ["/Users/me/doc.myext"] }
+//
+//  User clicked Dock icon while app is already running:
+//  { "type": "app_reopen" }
+//
+//  User closed the app window (red button):
+//  { "type": "window_closed" }
 
 import Foundation
 
-// ── Key modifier names (subset of NSEventModifierFlags, by string name) ──────
+// ── Key modifier names ────────────────────────────────────────────────────────
 
 public enum MenuModifier: String, Codable, Equatable {
     case cmd     = "cmd"
@@ -37,58 +50,33 @@ public enum MenuModifier: String, Codable, Equatable {
 
 public struct MenuItemDescriptor: Codable, Equatable {
 
-    // "item" (default) or "separator"
-    public var type: ItemType?
-
-    // Stable identifier used for patch_menu and menu_action events.
-    // Required for type == "item", absent for separators.
-    public var id: String?
-
-    public var label: String?
-
-    // Single-character keyboard equivalent (e.g. "n", "o", "w")
-    public var key: String?
-
-    public var modifiers: [MenuModifier]?
-
-    // Defaults to true when absent
-    public var enabled: Bool?
-
-    // Checkmark state
-    public var checked: Bool?
-
-    // Nested submenu items
-    public var submenu: [MenuItemDescriptor]?
+    public var type:     ItemType?
+    public var id:       String?
+    public var label:    String?
+    public var key:      String?
+    public var modifiers:[MenuModifier]?
+    public var enabled:  Bool?
+    public var checked:  Bool?
+    public var submenu:  [MenuItemDescriptor]?
 
     public enum ItemType: String, Codable {
         case item      = "item"
         case separator = "separator"
     }
 
-    // Convenience: is this a separator?
-    public var isSeparator: Bool {
-        type == .separator
-    }
-
-    // Convenience: effective enabled state (nil → true)
-    public var isEnabled: Bool {
-        enabled ?? true
-    }
-
-    // Convenience: effective checked state (nil → false)
-    public var isChecked: Bool {
-        checked ?? false
-    }
+    public var isSeparator: Bool { type == .separator }
+    public var isEnabled:   Bool { enabled ?? true }
+    public var isChecked:   Bool { checked ?? false }
 
     public init(
-        type: ItemType? = .item,
-        id: String? = nil,
-        label: String? = nil,
-        key: String? = nil,
-        modifiers: [MenuModifier]? = nil,
-        enabled: Bool? = nil,
-        checked: Bool? = nil,
-        submenu: [MenuItemDescriptor]? = nil
+        type:      ItemType?             = .item,
+        id:        String?               = nil,
+        label:     String?               = nil,
+        key:       String?               = nil,
+        modifiers: [MenuModifier]?       = nil,
+        enabled:   Bool?                 = nil,
+        checked:   Bool?                 = nil,
+        submenu:   [MenuItemDescriptor]? = nil
     ) {
         self.type      = type
         self.id        = id
@@ -101,7 +89,7 @@ public struct MenuItemDescriptor: Codable, Equatable {
     }
 }
 
-// ── A top-level menu (e.g. "File", "Edit", "View") ───────────────────────────
+// ── A top-level menu ──────────────────────────────────────────────────────────
 
 public struct MenuDescriptor: Codable, Equatable {
     public var label: String
@@ -113,17 +101,35 @@ public struct MenuDescriptor: Codable, Equatable {
     }
 }
 
-// ── Inbound socket messages (Node.js → shim) ──────────────────────────────────
+// ── A single patch operation ──────────────────────────────────────────────────
+
+public struct MenuPatch: Codable, Equatable {
+    public var id:      String
+    public var label:   String?
+    public var enabled: Bool?
+    public var checked: Bool?
+
+    public init(id: String, label: String? = nil,
+                enabled: Bool? = nil, checked: Bool? = nil) {
+        self.id      = id
+        self.label   = label
+        self.enabled = enabled
+        self.checked = checked
+    }
+}
+
+// ── Inbound messages (Node.js → nacre) ───────────────────────────────────────
 
 public enum InboundMessage: Codable, Equatable {
 
     case setMenu(menus: [MenuDescriptor])
     case patchMenu(patches: [MenuPatch])
+    case setURL(url: String)
+    case setScript(script: String)
+    case setDevTools(enabled: Bool)
 
-    // Manual Codable because the discriminant is a sibling "type" field,
-    // not a wrapped enum key.
     private enum CodingKeys: String, CodingKey {
-        case type, menus, patches
+        case type, menus, patches, url, script, enabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -131,15 +137,18 @@ public enum InboundMessage: Codable, Equatable {
         let kind = try c.decode(String.self, forKey: .type)
         switch kind {
         case "set_menu":
-            let menus = try c.decode([MenuDescriptor].self, forKey: .menus)
-            self = .setMenu(menus: menus)
+            self = .setMenu(menus: try c.decode([MenuDescriptor].self, forKey: .menus))
         case "patch_menu":
-            let patches = try c.decode([MenuPatch].self, forKey: .patches)
-            self = .patchMenu(patches: patches)
+            self = .patchMenu(patches: try c.decode([MenuPatch].self, forKey: .patches))
+        case "set_url":
+            self = .setURL(url: try c.decode(String.self, forKey: .url))
+        case "set_script":
+            self = .setScript(script: try c.decode(String.self, forKey: .script))
+        case "set_devtools":
+            self = .setDevTools(enabled: try c.decode(Bool.self, forKey: .enabled))
         default:
             throw DecodingError.dataCorruptedError(
-                forKey: .type,
-                in: c,
+                forKey: .type, in: c,
                 debugDescription: "Unknown inbound message type: \(kind)"
             )
         }
@@ -149,43 +158,32 @@ public enum InboundMessage: Codable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .setMenu(let menus):
-            try c.encode("set_menu", forKey: .type)
-            try c.encode(menus, forKey: .menus)
+            try c.encode("set_menu",  forKey: .type)
+            try c.encode(menus,       forKey: .menus)
         case .patchMenu(let patches):
             try c.encode("patch_menu", forKey: .type)
-            try c.encode(patches, forKey: .patches)
+            try c.encode(patches,      forKey: .patches)
+        case .setURL(let url):
+            try c.encode("set_url", forKey: .type)
+            try c.encode(url,       forKey: .url)
+        case .setScript(let script):
+            try c.encode("set_script", forKey: .type)
+            try c.encode(script,       forKey: .script)
+        case .setDevTools(let enabled):
+            try c.encode("set_devtools", forKey: .type)
+            try c.encode(enabled,        forKey: .enabled)
         }
     }
 }
 
-// ── A single patch operation (for patch_menu) ─────────────────────────────────
-
-public struct MenuPatch: Codable, Equatable {
-    public var id:      String
-    public var label:   String?
-    public var enabled: Bool?
-    public var checked: Bool?
-
-    public init(id: String, label: String? = nil, enabled: Bool? = nil, checked: Bool? = nil) {
-        self.id      = id
-        self.label   = label
-        self.enabled = enabled
-        self.checked = checked
-    }
-}
-
-// ── Outbound socket messages (shim → Node.js) ─────────────────────────────────
+// ── Outbound messages (nacre → Node.js) ──────────────────────────────────────
 
 public enum OutboundMessage: Codable, Equatable {
 
-    // User activated a menu item
     case menuAction(id: String)
-
-    // macOS delivered file-open request (Finder, drag-to-dock, registered UTI)
     case fileOpen(paths: [String])
-
-    // User clicked Dock icon while app is already running
     case appReopen
+    case windowClosed
 
     private enum CodingKeys: String, CodingKey {
         case type, id, paths
@@ -202,6 +200,8 @@ public enum OutboundMessage: Codable, Equatable {
             try c.encode(paths,       forKey: .paths)
         case .appReopen:
             try c.encode("app_reopen", forKey: .type)
+        case .windowClosed:
+            try c.encode("window_closed", forKey: .type)
         }
     }
 
@@ -210,17 +210,16 @@ public enum OutboundMessage: Codable, Equatable {
         let kind = try c.decode(String.self, forKey: .type)
         switch kind {
         case "menu_action":
-            let id = try c.decode(String.self, forKey: .id)
-            self = .menuAction(id: id)
+            self = .menuAction(id: try c.decode(String.self, forKey: .id))
         case "file_open":
-            let paths = try c.decode([String].self, forKey: .paths)
-            self = .fileOpen(paths: paths)
+            self = .fileOpen(paths: try c.decode([String].self, forKey: .paths))
         case "app_reopen":
             self = .appReopen
+        case "window_closed":
+            self = .windowClosed
         default:
             throw DecodingError.dataCorruptedError(
-                forKey: .type,
-                in: c,
+                forKey: .type, in: c,
                 debugDescription: "Unknown outbound message type: \(kind)"
             )
         }

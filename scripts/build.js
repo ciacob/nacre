@@ -5,8 +5,18 @@
 // Usage:
 //   node scripts/build.js --config <path-to-nacre.config.json>
 //
-// The config file path may be absolute or relative to cwd.
-// See README.md for the config file format.
+// Config format:
+//   {
+//     "app": {
+//       "name":     "My App",
+//       "bundleId": "com.example.myapp",
+//       "version":  "1.0.0",
+//       "icon":     "./assets/MyApp.icns"
+//     },
+//     "output": { "dir": "./dist" }
+//   }
+//
+// No browser binary is required — nacre uses WKWebView (system WebKit).
 
 'use strict';
 
@@ -15,41 +25,30 @@ const { loadConfig, validateConfig, normaliseConfig } = require('./lib/validate'
 const { buildPaths, ensureShimBinary, validateSources, assembleBundle } = require('./lib/assemble');
 const plistLib = require('./lib/plist');
 
-// ── CLI argument parsing ──────────────────────────────────────────────────────
-
 function parseArgs(argv) {
-  const args = argv.slice(2); // drop 'node' and script path
+  const args = argv.slice(2);
   const result = {};
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--config' && args[i + 1]) {
-      result.config = args[++i];
-    }
+    if (args[i] === '--config' && args[i + 1]) result.config = args[++i];
   }
   return result;
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
-
 function main() {
   const { config: configArg } = parseArgs(process.argv);
-
   if (!configArg) {
     console.error('Usage: node scripts/build.js --config <path-to-nacre.config.json>');
     process.exit(1);
   }
 
   const configFilePath = nodePath.resolve(process.cwd(), configArg);
-
-  // nacre repo root is one level up from scripts/
-  const repoRoot = nodePath.resolve(__dirname, '..');
-  const shimDir  = nodePath.join(repoRoot, 'shim');
+  const repoRoot       = nodePath.resolve(__dirname, '..');
+  const shimDir        = nodePath.join(repoRoot, 'shim');
 
   let config;
   try {
     config = normaliseConfig(
-      validateConfig(
-        loadConfig(configFilePath)
-      ),
+      validateConfig(loadConfig(configFilePath)),
       configFilePath
     );
   } catch (err) {
@@ -60,16 +59,10 @@ function main() {
   const paths = buildPaths(config, repoRoot);
 
   try {
-    // Compile shim if needed
     ensureShimBinary(paths.shimBinarySrc, shimDir);
-
-    // Verify all sources exist before touching the output directory
     validateSources(paths);
-
-    // Build the bundle
     assembleBundle(paths, config, plistLib);
-
-    console.log(`\n✓ nacre.app → ${paths.appBundle}\n`);
+    console.log(`\n✓ ${nodePath.basename(paths.appBundle)} → ${paths.appBundle}\n`);
   } catch (err) {
     console.error(`\n✗ ${err.message}\n`);
     process.exit(1);

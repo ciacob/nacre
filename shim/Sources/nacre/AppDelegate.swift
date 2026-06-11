@@ -1,30 +1,33 @@
 // AppDelegate.swift
 // nacre (executable target)
 //
-// Wires MenuBuilder + SocketServer + ProcessLauncher together.
-// This file is intentionally thin — all real logic lives in nacreLib
-// so it can be unit tested.  AppDelegate is the untestable Cocoa glue.
+// Wires ArgvParser + WindowController + WebViewController + SocketServer
+// + MenuBuilder together.
 //
 // Lifecycle
 // ─────────
 // 1. applicationDidFinishLaunching
-//      a. Install a minimal default menu immediately (so the app is not broken
-//         before Node.js connects and sends set_menu).
-//      b. Start the SocketServer.
-//      c. Launch the embedded Chromium child process.
+//      a. Parse argv → NacreArgs
+//      b. Create WebViewController + WindowController
+//      c. Install default menu
+//      d. Start SocketServer (path from --nacre-socket or default)
+//      e. If --app= URL is already in argv, load it immediately
+//      f. Show window
 //
-// 2. Socket messages (on main thread, delivered by SocketServer)
-//      set_menu   → rebuild NSApplication.shared.mainMenu
-//      patch_menu → mutate existing menu items in place
+// 2. Socket messages (all delivered on main thread)
+//      set_menu     → rebuild NSApplication.shared.mainMenu
+//      patch_menu   → mutate existing items in place
+//      set_url      → load URL in WebViewController
+//      set_script   → inject WKUserScript
+//      set_devtools → toggle developer tools
 //
-// 3. Menu item activation (menuItemActivated(_:))
-//      → emit menu_action outbound message over the socket
+// 3. Menu item activation → emit menu_action over socket
 //
-// 4. applicationOpenFiles / applicationShouldHandleReopen
-//      → emit file_open / app_reopen outbound messages
+// 4. Window close → emit window_closed over socket
 //
-// 5. Chromium process termination
-//      → NSApplication.shared.terminate(nil)  [if --autoexit in argv]
+// 5. applicationOpenFiles → emit file_open over socket
+//
+// 6. applicationShouldHandleReopen → emit app_reopen over socket
 
 import AppKit
 import nacreLib
@@ -33,22 +36,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActionReceiver {
 
     // MARK: – Owned objects
 
-    private let launcher = ProcessLauncher()
+    private var webVC:    WebViewController?
+    private var winCtrl:  WindowController?
     private var server:   SocketServer?
     private var menuBar:  NSMenu?
+    private var parsedArgs = NacreArgs()
 
     // MARK: – NSApplicationDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
 
-        // 1. Default menu — displayed until Node.js sends set_menu
+        // 1. Parse argv
+        parsedArgs = ArgvParser.parse(CommandLine.arguments)
+        if !parsedArgs.ignored.isEmpty {
+            NSLog("[nacre] ignored argv: %@", parsedArgs.ignored.joined(separator: " "))
+        }
+
+        // 2. Create web + window layers
+        let wvc = WebViewController()
+        wvc.onWindowClosed = { [weak self] in
+            self?.handleWindowClosed()
+        }
+        webVC = wvc
+
+        let wc = WindowController(args: parsedArgs, webViewController: wvc)
+        winCtrl = wc
+
+        // 3. Default menu
         installDefaultMenu()
 
-        // 2. Start socket server
-        let socketPath = SocketPathHelper.defaultPath()
+        // 4. Start socket server
+        let socketPath = parsedArgs.nacreSocket
+            ?? SocketPathHelper.defaultPath()
         let srv = SocketServer(
             socketPath:    socketPath,
-            callbackQueue: DispatchQueue.main   // NSMenu mutations on main thread
+            callbackQueue: DispatchQueue.main
         )
         srv.onMessage    = { [weak self] msg in self?.handle(message: msg) }
         srv.onDisconnect = { [weak self] in self?.handleDisconnect() }
@@ -57,48 +79,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActionReceiver {
         }
         do {
             try srv.start()
-            NSLog("[nacre] socket server listening at %@", socketPath)
+            NSLog("[nacre] socket listening at %@", socketPath)
         } catch {
-            NSLog("[nacre] failed to start socket server: %@", error.localizedDescription)
+            NSLog("[nacre] socket start failed: %@", error.localizedDescription)
         }
         server = srv
 
-        // 3. Launch Chromium
-        guard let browserPath = launcher.resolveBrowserPath() else {
-            NSLog("[nacre] browser binary not found in Frameworks/")
-            showChromiumNotFoundAlert()
-            return
+        // 5. Load URL from --app= if provided (Node.js may also send set_url)
+        if let urlString = parsedArgs.appURL {
+            wvc.load(urlString: urlString)
         }
-        launcher.onTermination = { [weak self] code in
-            self?.handleChromiumExit(code: code)
-        }
-        do {
-            try launcher.launch(browserPath: browserPath,
-                                argv: CommandLine.arguments)
-            NSLog("[nacre] launched browser at %@", browserPath)
-        } catch {
-            NSLog("[nacre] failed to launch Chromium: %@", error.localizedDescription)
-        }
+
+        // 6. Show window
+        wc.show()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        launcher.terminate()
         server?.stop()
     }
 
-    // File open requests from macOS (Finder, registered UTIs, drag-to-Dock)
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
         server?.send(.fileOpen(paths: filenames))
         sender.reply(toOpenOrPrint: .success)
     }
 
-    // Dock icon clicked while already running
     func applicationShouldHandleReopen(
         _ sender: NSApplication,
         hasVisibleWindows: Bool
     ) -> Bool {
         server?.send(.appReopen)
-        return false   // we don't manage windows; Chromium does
+        return false
     }
 
     // MARK: – MenuActionReceiver
@@ -116,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActionReceiver {
         case .setMenu(let descriptors):
             let errors = MenuBuilder.validateDescriptors(descriptors)
             if !errors.isEmpty {
-                NSLog("[nacre] set_menu validation warnings: %@", errors.joined(separator: "; "))
+                NSLog("[nacre] set_menu warnings: %@", errors.joined(separator: "; "))
             }
             let bar = MenuBuilder.buildMenuBar(from: descriptors, target: self)
             NSApplication.shared.mainMenu = bar
@@ -124,56 +134,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActionReceiver {
 
         case .patchMenu(let patches):
             guard let bar = menuBar else {
-                NSLog("[nacre] patch_menu received before set_menu — ignored")
+                NSLog("[nacre] patch_menu before set_menu — ignored")
                 return
             }
             let missing = MenuBuilder.applyPatches(patches, to: bar)
             if !missing.isEmpty {
-                NSLog("[nacre] patch_menu: IDs not found: %@", missing.joined(separator: ", "))
+                NSLog("[nacre] patch_menu: missing IDs: %@",
+                      missing.joined(separator: ", "))
             }
+
+        case .setURL(let urlString):
+            webVC?.load(urlString: urlString)
+
+        case .setScript(let script):
+            webVC?.setUserScript(script)
+
+        case .setDevTools(let enabled):
+            webVC?.setDevToolsEnabled(enabled)
         }
     }
 
     private func handleDisconnect() {
         NSLog("[nacre] Node.js disconnected")
-        // Restore default menu so the app is not left menu-less
         installDefaultMenu()
     }
 
-    // MARK: – Chromium lifecycle
+    // MARK: – Window close
 
-    private func handleChromiumExit(code: Int32) {
-        NSLog("[nacre] Chromium exited with code %d", code)
-        // --autoexit: terminate the shim when Chromium exits
-        if CommandLine.arguments.contains("--autoexit") {
-            NSApplication.shared.terminate(nil)
-        }
+    private func handleWindowClosed() {
+        server?.send(.windowClosed)
     }
 
     // MARK: – Default menu
 
-    /// A minimal menu shown before Node.js sends set_menu.
-    /// Provides Quit and standard Edit commands so the app is not broken.
     private func installDefaultMenu() {
         let appName = Bundle.main.infoDictionary?["CFBundleName"] as? String ?? "App"
-
-        let bar = NSMenu(title: "MainMenu")
+        let bar     = NSMenu(title: "MainMenu")
 
         // App menu
         let appItem = NSMenuItem(title: appName, action: nil, keyEquivalent: "")
         let appMenu = NSMenu(title: appName)
         appMenu.autoenablesItems = false
         let quitItem = NSMenuItem(
-            title: "Quit \(appName)",
-            action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q"
+            title:          "Quit \(appName)",
+            action:         #selector(NSApplication.terminate(_:)),
+            keyEquivalent:  "q"
         )
         quitItem.keyEquivalentModifierMask = .command
         appMenu.addItem(quitItem)
         appItem.submenu = appMenu
         bar.addItem(appItem)
 
-        // Edit menu (needed for standard text field behaviour in Chromium)
+        // Edit menu (needed for standard text field behaviour in WKWebView)
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         let editMenu = NSMenu(title: "Edit")
         editMenu.autoenablesItems = true
@@ -183,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActionReceiver {
             ("Cut",   #selector(NSText.cut(_:)),    "x"),
             ("Copy",  #selector(NSText.copy(_:)),   "c"),
             ("Paste", #selector(NSText.paste(_:)),  "v"),
-        ] {
+        ] as [(String, Selector, String)] {
             let item = NSMenuItem(title: title, action: sel, keyEquivalent: key)
             item.keyEquivalentModifierMask = .command
             editMenu.addItem(item)
@@ -192,18 +204,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActionReceiver {
         bar.addItem(editItem)
 
         NSApplication.shared.mainMenu = bar
-        menuBar = nil   // mark as "not yet set by Node.js"
-    }
-
-    // MARK: – Alerts
-
-    private func showChromiumNotFoundAlert() {
-        let alert             = NSAlert()
-        alert.messageText     = "Chromium not found"
-        alert.informativeText = "The embedded browser binary could not be located. "
-            + "Please reinstall the application."
-        alert.alertStyle      = .critical
-        alert.runModal()
-        NSApplication.shared.terminate(nil)
+        menuBar = nil
     }
 }
