@@ -18,3 +18,4 @@ xcuserdata/
 # Node.js (for future scripts/)
 node_modules/
 npm-debug.log*
+e2e-testing
