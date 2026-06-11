@@ -1,0 +1,14 @@
+{
+  "name": "nacre-scripts",
+  "version": "1.0.0",
+  "description": "nacre build scripts",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build": "node build.js"
+  },
+  "license": "Apache-2.0"
+}

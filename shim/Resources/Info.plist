@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+  <!-- Identity — patched by nacre build script -->
+  <key>CFBundleName</key>
+  <string>{{APP_NAME}}</string>
+
+  <key>CFBundleDisplayName</key>
+  <string>{{APP_NAME}}</string>
+
+  <key>CFBundleIdentifier</key>
+  <string>{{BUNDLE_ID}}</string>
+
+  <key>CFBundleVersion</key>
+  <string>{{VERSION}}</string>
+
+  <key>CFBundleShortVersionString</key>
+  <string>{{VERSION}}</string>
+
+  <!-- Bundle type — this is a standard application -->
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+
+  <key>CFBundleSignature</key>
+  <string>????</string>
+
+  <!-- Executable — always "nacre" (the shim binary name never changes) -->
+  <key>CFBundleExecutable</key>
+  <string>nacre</string>
+
+  <!-- Icon -->
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+
+  <!-- Minimum macOS version (matches Swift package platform floor) -->
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+
+  <!-- Allow the app to be a foreground UI application -->
+  <key>LSUIElement</key>
+  <false/>
+
+  <!-- High-resolution display support -->
+  <key>NSHighResolutionCapable</key>
+  <true/>
+
+  <!-- Hardened runtime — required for notarization -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+
+  <!-- Suppress the automatic "App is damaged" Gatekeeper warning during
+       development when running an unsigned build directly -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+
+  <!-- Principal class — standard Cocoa app entry point -->
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+
+</dict>
+</plist>
