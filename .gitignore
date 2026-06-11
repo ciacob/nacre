@@ -1,0 +1,20 @@
+# Swift Package Manager
+shim/.build/
+shim/*.xcodeproj
+shim/*.xcworkspace
+shim/.swiftpm/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+
+# Downloaded browsers (runtime, not committed)
+.browsers/
+
+# Node.js (for future scripts/)
+node_modules/
+npm-debug.log*
