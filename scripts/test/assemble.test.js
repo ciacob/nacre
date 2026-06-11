@@ -45,9 +45,9 @@ test('buildPaths: shimBinarySrc is inside shim/.build/release', () => {
   assert.ok(paths.shimBinarySrc.endsWith('nacre'));
 });
 
-test('buildPaths: appBundle is nacre.app inside output.dir', () => {
+test('buildPaths: appBundle is <AppName>.app inside output.dir', () => {
   const paths = buildPaths(validConfig(), REPO_ROOT);
-  assert.equal(paths.appBundle, nodePath.join('/abs/dist', 'nacre.app'));
+  assert.equal(paths.appBundle, nodePath.join('/abs/dist', 'My App.app'));
 });
 
 test('buildPaths: shimBinaryDest is MacOS/nacre inside bundle', () => {

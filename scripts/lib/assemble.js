@@ -88,7 +88,8 @@ const realOps = {
  * @returns {object}          Map of named paths.
  */
 function buildPaths(config, repoRoot, path = nodePath) {
-  const appBundle     = path.join(config.output.dir, 'nacre.app');
+  const safeName      = config.app.name.replace(/[/\\:*?"<>|]/g, '_');
+  const appBundle     = path.join(config.output.dir, `${safeName}.app`);
   const contents      = path.join(appBundle, 'Contents');
 
   return {

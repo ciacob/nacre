@@ -29,7 +29,6 @@
 import AppKit
 import nacreLib
 
-@main
 final class AppDelegate: NSObject, NSApplicationDelegate, MenuActionReceiver {
 
     // MARK: – Owned objects
