@@ -62,6 +62,16 @@ public final class PosixSocketIO: SocketIO {
         // Remove stale socket file if present
         Foundation.unlink(path)
 
+        // Ensure the parent directory exists — required when the socket path
+        // is supplied via --nacre-socket rather than derived from SocketPathHelper.
+        let dir = (path as NSString).deletingLastPathComponent
+        if !dir.isEmpty {
+            try? FileManager.default.createDirectory(
+                atPath: dir,
+                withIntermediateDirectories: true
+            )
+        }
+
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw SocketError.system("socket()", errno) }
 
