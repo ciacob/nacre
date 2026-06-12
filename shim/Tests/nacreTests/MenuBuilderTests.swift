@@ -232,6 +232,197 @@ final class MenuBuilderTests: XCTestCase {
         XCTAssertEqual(mask, [])
     }
 
+    // ── buildMenuBar — edge cases ─────────────────────────────────────────
+
+    func test_buildMenuBar_empty_descriptors_produces_empty_bar() {
+        let bar = MenuBuilder.buildMenuBar(from: [], target: target)
+        XCTAssertEqual(bar.items.count, 0)
+    }
+
+    func test_buildMenuBar_separators_survive_full_pipeline() {
+        let bar = MenuBuilder.buildMenuBar(from: [
+            MenuDescriptor(label: "File", items: [
+                MenuItemDescriptor(id: "file.new",  label: "New"),
+                MenuItemDescriptor(type: .separator),
+                MenuItemDescriptor(id: "file.quit", label: "Quit"),
+            ])
+        ], target: target)
+
+        let sub = bar.items[0].submenu!
+        XCTAssertEqual(sub.items.count, 3)
+        XCTAssertTrue(sub.items[1].isSeparatorItem, "Middle item must be a separator")
+        XCTAssertFalse(sub.items[0].isSeparatorItem)
+        XCTAssertFalse(sub.items[2].isSeparatorItem)
+    }
+
+    func test_buildMenuBar_nested_submenu_survives_full_pipeline() {
+        let bar = MenuBuilder.buildMenuBar(from: [
+            MenuDescriptor(label: "View", items: [
+                MenuItemDescriptor(
+                    id:      "view.zoom",
+                    label:   "Zoom",
+                    submenu: [
+                        MenuItemDescriptor(id: "view.zoom.in",  label: "Zoom In"),
+                        MenuItemDescriptor(id: "view.zoom.out", label: "Zoom Out"),
+                    ]
+                )
+            ])
+        ], target: target)
+
+        let zoomItem = bar.items[0].submenu?.items[0]
+        XCTAssertNotNil(zoomItem?.submenu)
+        XCTAssertEqual(zoomItem?.submenu?.items.count, 2)
+        XCTAssertEqual(zoomItem?.submenu?.items[0].title, "Zoom In")
+        XCTAssertEqual(zoomItem?.submenu?.items[1].title, "Zoom Out")
+    }
+
+    func test_buildMenuBar_multiple_top_level_menus() {
+        let bar = MenuBuilder.buildMenuBar(from: [
+            MenuDescriptor(label: "File", items: [
+                MenuItemDescriptor(id: "file.new", label: "New")
+            ]),
+            MenuDescriptor(label: "Edit", items: [
+                MenuItemDescriptor(id: "edit.copy", label: "Copy")
+            ]),
+            MenuDescriptor(label: "View", items: [
+                MenuItemDescriptor(id: "view.zoom", label: "Zoom")
+            ]),
+        ], target: target)
+
+        XCTAssertEqual(bar.items.count, 3)
+        XCTAssertEqual(bar.items[0].title, "File")
+        XCTAssertEqual(bar.items[1].title, "Edit")
+        XCTAssertEqual(bar.items[2].title, "View")
+    }
+
+    // ── applyPatches — depth-first search through submenus ────────────────
+
+    func test_applyPatches_reaches_item_inside_submenu() {
+        let bar = MenuBuilder.buildMenuBar(from: [
+            MenuDescriptor(label: "View", items: [
+                MenuItemDescriptor(
+                    id:      "view.zoom",
+                    label:   "Zoom",
+                    submenu: [
+                        MenuItemDescriptor(id: "view.zoom.in",  label: "Zoom In"),
+                        MenuItemDescriptor(id: "view.zoom.out", label: "Zoom Out"),
+                    ]
+                )
+            ])
+        ], target: target)
+
+        MenuBuilder.applyPatches(
+            [MenuPatch(id: "view.zoom.in", label: "Zoom In ⌘+", enabled: false)],
+            to: bar
+        )
+
+        let item = findItem(id: "view.zoom.in", in: bar)
+        XCTAssertEqual(item?.title,     "Zoom In ⌘+")
+        XCTAssertEqual(item?.isEnabled, false)
+    }
+
+    func test_applyPatches_reaches_items_across_multiple_top_level_menus() {
+        let bar = MenuBuilder.buildMenuBar(from: [
+            MenuDescriptor(label: "File", items: [
+                MenuItemDescriptor(id: "file.new", label: "New")
+            ]),
+            MenuDescriptor(label: "Edit", items: [
+                MenuItemDescriptor(id: "edit.copy", label: "Copy")
+            ]),
+        ], target: target)
+
+        MenuBuilder.applyPatches([
+            MenuPatch(id: "file.new",  label: "New Window"),
+            MenuPatch(id: "edit.copy", enabled: false),
+        ], to: bar)
+
+        XCTAssertEqual(findItem(id: "file.new",  in: bar)?.title,     "New Window")
+        XCTAssertEqual(findItem(id: "edit.copy", in: bar)?.isEnabled, false)
+    }
+
+    // ── validateDescriptors — submenu recursion ───────────────────────────
+
+    func test_validate_catches_missing_id_inside_submenu() {
+        let menus = [MenuDescriptor(label: "View", items: [
+            MenuItemDescriptor(
+                id:    "view.zoom",
+                label: "Zoom",
+                submenu: [
+                    MenuItemDescriptor(id: nil, label: "Zoom In") // missing id
+                ]
+            )
+        ])]
+        let errors = MenuBuilder.validateDescriptors(menus)
+        XCTAssertTrue(
+            errors.contains(where: { $0.contains("missing 'id'") }),
+            "Should report missing id inside submenu. Got: \(errors)"
+        )
+    }
+
+    func test_validate_catches_duplicate_id_across_menus() {
+        // Same ID used in File and Edit — must be caught
+        let menus = [
+            MenuDescriptor(label: "File", items: [
+                MenuItemDescriptor(id: "shared.id", label: "Item A")
+            ]),
+            MenuDescriptor(label: "Edit", items: [
+                MenuItemDescriptor(id: "shared.id", label: "Item B")
+            ]),
+        ]
+        let errors = MenuBuilder.validateDescriptors(menus)
+        XCTAssertTrue(
+            errors.contains(where: { $0.contains("duplicate id") && $0.contains("shared.id") }),
+            "Should report cross-menu duplicate ID. Got: \(errors)"
+        )
+    }
+
+    func test_validate_catches_duplicate_id_in_submenu_vs_parent() {
+        let menus = [MenuDescriptor(label: "File", items: [
+            MenuItemDescriptor(
+                id:    "dup",
+                label: "Parent",
+                submenu: [
+                    MenuItemDescriptor(id: "dup", label: "Child") // same as parent
+                ]
+            )
+        ])]
+        let errors = MenuBuilder.validateDescriptors(menus)
+        XCTAssertTrue(
+            errors.contains(where: { $0.contains("duplicate id") }),
+            "Should report duplicate id between parent and submenu child. Got: \(errors)"
+        )
+    }
+
+    // ── MenuActionReceiver — selector wiring ──────────────────────────────
+
+    func test_menuItemActivated_delivers_representedObject_id() {
+        let bar  = buildTestBar()
+        let item = findItem(id: "file.new", in: bar)!
+
+        // Simulate the action — directly invoke the selector on the target
+        target.menuItemActivated(item)
+
+        XCTAssertEqual(target.activatedIDs, ["file.new"])
+    }
+
+    func test_menuItemActivated_delivers_correct_id_for_multiple_items() {
+        let bar = buildTestBar()
+
+        target.menuItemActivated(findItem(id: "file.new",  in: bar)!)
+        target.menuItemActivated(findItem(id: "file.open", in: bar)!)
+        target.menuItemActivated(findItem(id: "file.new",  in: bar)!)
+
+        XCTAssertEqual(target.activatedIDs, ["file.new", "file.open", "file.new"])
+    }
+
+    func test_menuItemActivated_ignores_item_without_representedObject() {
+        // Separators and items built without an id have no representedObject
+        let separator = NSMenuItem.separator()
+        target.menuItemActivated(separator)
+        XCTAssertTrue(target.activatedIDs.isEmpty,
+                      "Separator should produce no activation")
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private func buildTestBar() -> NSMenu {
