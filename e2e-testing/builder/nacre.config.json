@@ -1,0 +1,11 @@
+{
+  "app": {
+    "name":     "Sample App 1",
+    "bundleId": "com.example.my.sample.app.1",
+    "version":  "1.0.0",
+    "icon":     "/Users/ciacob/_DEV_/github/node_js/nacre/e2e-testing/template.file.icon.icns"
+  },
+  "output": {
+    "dir": "/Users/ciacob/_DEV_/github/node_js/nacre/e2e-testing/out"
+  }
+}
