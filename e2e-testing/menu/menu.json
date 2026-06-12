@@ -1,0 +1,52 @@
+{
+  "type": "set_menu",
+  "menus": [
+    {
+      "label": "File",
+      "items": [
+        { "id": "file.new",     "label": "New",       "key": "n", "modifiers": ["cmd"] },
+        { "id": "file.open",    "label": "Open…",     "key": "o", "modifiers": ["cmd"] },
+        { "type": "separator" },
+        { "id": "file.save",    "label": "Save",      "key": "s", "modifiers": ["cmd"] },
+        { "id": "file.save_as", "label": "Save As…",  "key": "s", "modifiers": ["cmd", "shift"] },
+        { "type": "separator" },
+        { "id": "file.close",   "label": "Close",     "key": "w", "modifiers": ["cmd"], "enabled": false }
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        { "id": "edit.undo",    "label": "Undo",      "key": "z", "modifiers": ["cmd"] },
+        { "id": "edit.redo",    "label": "Redo",      "key": "z", "modifiers": ["cmd", "shift"] },
+        { "type": "separator" },
+        { "id": "edit.cut",     "label": "Cut",       "key": "x", "modifiers": ["cmd"] },
+        { "id": "edit.copy",    "label": "Copy",      "key": "c", "modifiers": ["cmd"] },
+        { "id": "edit.paste",   "label": "Paste",     "key": "v", "modifiers": ["cmd"] }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        { "id": "view.devtools", "label": "Developer Tools", "key": "i", "modifiers": ["cmd", "option"] },
+        { "type": "separator" },
+        {
+          "id": "view.zoom", "label": "Zoom",
+          "submenu": [
+            { "id": "view.zoom.in",     "label": "Zoom In",    "key": "+", "modifiers": ["cmd"] },
+            { "id": "view.zoom.out",    "label": "Zoom Out",   "key": "-", "modifiers": ["cmd"] },
+            { "id": "view.zoom.reset",  "label": "Reset Zoom", "key": "0", "modifiers": ["cmd"] }
+          ]
+        },
+        { "type": "separator" },
+        { "id": "view.fullscreen", "label": "Enter Full Screen", "key": "f", "modifiers": ["cmd", "control"], "checked": false }
+      ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        { "id": "help.docs",    "label": "Documentation" },
+        { "id": "help.about",   "label": "About Nacre Menu Fixture" }
+      ]
+    }
+  ]
+}
